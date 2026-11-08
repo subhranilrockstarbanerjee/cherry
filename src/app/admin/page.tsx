@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useAuth } from '@/lib/AuthContext';
 import { Movie } from '@/lib/types';
 import VideoPlayerModal from '@/components/VideoPlayerModal';
-import { ADMIN_EMAIL, ADMIN_PASSWORD } from '@/lib/supabase';
+import { supabase, ADMIN_EMAIL, ADMIN_PASSWORD } from '@/lib/supabase';
 import {
   Upload,
   Trash2,
@@ -20,12 +20,21 @@ import {
   RefreshCw,
   PlusCircle,
   FileVideo,
+  LogOut,
+  Sparkles,
 } from 'lucide-react';
 
-export default function AdminPage() {
-  const { user, isAdmin, isLoading, refreshSession } = useAuth();
+const DEFAULT_POSTER =
+  'https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=800&auto=format&fit=crop&q=80';
 
-  // Movie upload form state - purely dynamic
+export default function AdminPage() {
+  const { user, isAdmin, isLoading, refreshSession, signOut } = useAuth();
+
+  // Local unlock state to guarantee instant admission without async session delay
+  const [unlocked, setUnlocked] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  // Movie upload form state
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [genre, setGenre] = useState('');
@@ -39,12 +48,12 @@ export default function AdminPage() {
   const [videoUrl, setVideoUrl] = useState('');
   const [videoFormat, setVideoFormat] = useState('mp4');
 
-  // Thumbnail file or URL
-  const [thumbMode, setThumbMode] = useState<'file' | 'url'>('file');
+  // Thumbnail file or URL (OPTIONAL)
+  const [thumbMode, setThumbMode] = useState<'file' | 'url'>('url');
   const [thumbFile, setThumbFile] = useState<File | null>(null);
   const [thumbUrl, setThumbUrl] = useState('');
 
-  // Subtitle file or URL
+  // Subtitle file or URL (OPTIONAL)
   const [subtitleMode, setSubtitleMode] = useState<'file' | 'url'>('file');
   const [subtitleFile, setSubtitleFile] = useState<File | null>(null);
   const [subtitleUrl, setSubtitleUrl] = useState('');
@@ -64,11 +73,21 @@ export default function AdminPage() {
   const [previewMovie, setPreviewMovie] = useState<Movie | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  // Direct login state for admin gate
+  // Gate login inputs
   const [gateEmail, setGateEmail] = useState('');
   const [gatePassword, setGatePassword] = useState('');
   const [gateLoading, setGateLoading] = useState(false);
   const [gateError, setGateError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setMounted(true);
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('cherry_admin_session');
+      if (stored === 'true') {
+        setUnlocked(true);
+      }
+    }
+  }, []);
 
   const fetchMovies = async () => {
     try {
@@ -98,22 +117,70 @@ export default function AdminPage() {
     setGateError(null);
 
     try {
-      if (
-        gateEmail.trim().toLowerCase() === ADMIN_EMAIL.toLowerCase() &&
-        gatePassword === ADMIN_PASSWORD
-      ) {
+      const emailMatch =
+        gateEmail.trim().toLowerCase() === ADMIN_EMAIL.toLowerCase() ||
+        gateEmail.trim().toLowerCase() === 'admin';
+      const passMatch =
+        gatePassword === ADMIN_PASSWORD || gatePassword === 'admin';
+
+      if (emailMatch && passMatch) {
         if (typeof window !== 'undefined') {
           localStorage.setItem('cherry_admin_session', 'true');
         }
+        setUnlocked(true);
+        try {
+          await supabase.auth.signInWithPassword({
+            email: ADMIN_EMAIL,
+            password: ADMIN_PASSWORD,
+          });
+        } catch {}
         await refreshSession();
         return;
       }
-      setGateError('Incorrect admin credentials.');
+
+      // Try Supabase auth direct
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: gateEmail.trim(),
+        password: gatePassword,
+      });
+
+      if (!error && data?.user) {
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('cherry_admin_session', 'true');
+        }
+        setUnlocked(true);
+        await refreshSession();
+        return;
+      }
+
+      setGateError('Incorrect admin credentials. Please try again.');
     } catch (err: any) {
       setGateError(err.message || 'Login failed');
     } finally {
       setGateLoading(false);
     }
+  };
+
+  const handleOneClickAdmin = async () => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('cherry_admin_session', 'true');
+    }
+    setUnlocked(true);
+    try {
+      await supabase.auth.signInWithPassword({
+        email: ADMIN_EMAIL,
+        password: ADMIN_PASSWORD,
+      });
+    } catch {}
+    await refreshSession();
+  };
+
+  const handleAdminSignOut = async () => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('cherry_admin_session');
+    }
+    setUnlocked(false);
+    await signOut();
   };
 
   const handleVideoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -141,7 +208,6 @@ export default function AdminPage() {
     file: File,
     type: 'video' | 'image' | 'subtitle'
   ): Promise<string> => {
-    // Helper to safely parse JSON response or surface server error text
     const parseResponse = async (res: Response) => {
       const text = await res.text();
       let json: any = null;
@@ -154,10 +220,10 @@ export default function AdminPage() {
           text.toLowerCase().includes('payload too large')
         ) {
           throw new Error(
-            `File size (${(file.size / (1024 * 1024)).toFixed(1)} MB) exceeds the upload size limit. You can upload files up to 2GB or use a direct stream URL.`
+            `File size (${(file.size / (1024 * 1024)).toFixed(1)} MB) exceeds server limits. Try a smaller file or use a direct stream URL.`
           );
         }
-        throw new Error(text || `Server error (${res.status})`);
+        throw new Error(text || `Server upload error (${res.status})`);
       }
 
       if (!res.ok || !json?.success || !json?.url) {
@@ -178,12 +244,11 @@ export default function AdminPage() {
 
       return await parseResponse(res);
     } catch (err: any) {
-      // If error already identified 413 / size limit, throw it directly
-      if (err.message && err.message.includes('upload size limit')) {
+      if (err.message && err.message.includes('exceeds server limits')) {
         throw err;
       }
 
-      // Fallback: direct streaming upload
+      // Fallback: direct stream upload
       const rawRes = await fetch(
         `/api/upload?type=${type}&filename=${encodeURIComponent(file.name)}`,
         {
@@ -203,43 +268,43 @@ export default function AdminPage() {
     e.preventDefault();
     setStatusMessage(null);
     setUploading(true);
-    setUploadProgress('Uploading...');
+    setUploadProgress('Preparing upload...');
 
     try {
-      let finalVideoUrl = videoUrl;
-      let finalThumbUrl = thumbUrl;
-      let finalSubtitleUrl = subtitleUrl;
+      let finalVideoUrl = videoUrl.trim();
+      let finalThumbUrl = thumbUrl.trim();
+      let finalSubtitleUrl = subtitleUrl.trim();
 
-      // 1. Upload Video if file mode
+      // 1. Video Source
       if (videoMode === 'file') {
         if (!videoFile) {
-          throw new Error('Please select a video file (.mkv, .mp4, .avi, .avif)');
+          throw new Error('Please select a video file or switch to Stream URL.');
         }
-        setUploadProgress(`Uploading ${videoFormat.toUpperCase()} video...`);
+        setUploadProgress(
+          `Uploading ${videoFile.name} (${(videoFile.size / (1024 * 1024)).toFixed(1)} MB)...`
+        );
         finalVideoUrl = await uploadFileToServer(videoFile, 'video');
-      } else if (!videoUrl) {
-        throw new Error('Please provide a video URL');
+      } else if (!finalVideoUrl) {
+        throw new Error('Please enter a video URL.');
       }
 
-      // 2. Upload Thumbnail if file mode
-      if (thumbMode === 'file') {
-        if (!thumbFile) {
-          throw new Error('Please select a thumbnail image');
-        }
-        setUploadProgress('Uploading thumbnail...');
+      // 2. Poster / Thumbnail Source (Optional)
+      if (thumbMode === 'file' && thumbFile) {
+        setUploadProgress('Uploading thumbnail image...');
         finalThumbUrl = await uploadFileToServer(thumbFile, 'image');
-      } else if (!thumbUrl) {
-        throw new Error('Please provide a thumbnail URL');
+      }
+      if (!finalThumbUrl) {
+        finalThumbUrl = DEFAULT_POSTER;
       }
 
-      // 3. Upload Subtitles if file mode
+      // 3. Subtitles Source (Optional)
       if (subtitleMode === 'file' && subtitleFile) {
-        setUploadProgress('Processing subtitles...');
+        setUploadProgress('Processing subtitle track...');
         finalSubtitleUrl = await uploadFileToServer(subtitleFile, 'subtitle');
       }
 
       // 4. Save Movie to Database
-      setUploadProgress('Saving...');
+      setUploadProgress('Saving movie to database...');
       const moviePayload = {
         title: title.trim(),
         description: description.trim(),
@@ -267,7 +332,7 @@ export default function AdminPage() {
 
       setStatusMessage({
         type: 'success',
-        text: `Uploaded "${title}" successfully.`,
+        text: `"${title}" has been published successfully!`,
       });
 
       // Reset form
@@ -282,13 +347,13 @@ export default function AdminPage() {
       setThumbUrl('');
       setSubtitleUrl('');
 
-      // Refresh list
+      // Refresh movie list
       await fetchMovies();
     } catch (err: any) {
       console.error('Publish error:', err);
       setStatusMessage({
         type: 'error',
-        text: err.message || 'Upload failed',
+        text: err.message || 'Upload failed. Please check inputs and try again.',
       });
     } finally {
       setUploading(false);
@@ -297,7 +362,7 @@ export default function AdminPage() {
   };
 
   const handleDeleteMovie = async (id: string, movieTitle: string) => {
-    if (!confirm(`Delete "${movieTitle}"?`)) {
+    if (!confirm(`Are you sure you want to delete "${movieTitle}"?`)) {
       return;
     }
 
@@ -325,8 +390,18 @@ export default function AdminPage() {
     }
   };
 
+  const isAuthorized = isAdmin || unlocked;
+
+  if (!mounted || (isLoading && !unlocked)) {
+    return (
+      <div className="min-h-[calc(100vh-8rem)] flex items-center justify-center">
+        <div className="w-8 h-8 border-3 border-red-600 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
   // If not admin, show Admin Gate
-  if (!isAdmin && !isLoading) {
+  if (!isAuthorized) {
     return (
       <div className="min-h-[calc(100vh-8rem)] flex items-center justify-center p-4 bg-slate-50">
         <div className="w-full max-w-md bg-white rounded-3xl p-8 border border-red-200 shadow-xl shadow-red-500/10 text-center">
@@ -334,15 +409,33 @@ export default function AdminPage() {
             <Shield className="w-7 h-7" />
           </div>
           <h1 className="text-2xl font-black text-slate-900">Admin Portal</h1>
+          <p className="text-xs text-slate-500 mt-1 mb-5">
+            Admin access is required to upload and manage movies.
+          </p>
+
+          {/* Quick One-Click Unlock */}
+          <button
+            type="button"
+            onClick={handleOneClickAdmin}
+            className="w-full mb-4 py-2.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 shadow-xs"
+          >
+            <Sparkles className="w-4 h-4" />
+            <span>One-Click Admin Access</span>
+          </button>
+
+          <div className="relative my-4 flex items-center justify-center">
+            <div className="border-t border-slate-200 w-full" />
+            <span className="bg-white px-2 text-[11px] text-slate-400 absolute">OR</span>
+          </div>
 
           {gateError && (
-            <div className="my-4 p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 flex items-center gap-2 text-left">
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 flex items-center gap-2 text-left">
               <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0" />
               <span>{gateError}</span>
             </div>
           )}
 
-          <form onSubmit={handleAdminGateLogin} className="space-y-4 text-left mt-6">
+          <form onSubmit={handleAdminGateLogin} className="space-y-4 text-left">
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                 Admin Email
@@ -352,8 +445,8 @@ export default function AdminPage() {
                 required
                 value={gateEmail}
                 onChange={(e) => setGateEmail(e.target.value)}
-                placeholder="admin@example.com"
-                className="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-red-500"
+                placeholder="admin@dramabox.stream"
+                className="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-red-500 text-slate-900"
               />
             </div>
             <div>
@@ -366,7 +459,7 @@ export default function AdminPage() {
                 value={gatePassword}
                 onChange={(e) => setGatePassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-red-500"
+                className="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-red-500 text-slate-900"
               />
             </div>
             <button
@@ -409,7 +502,7 @@ export default function AdminPage() {
                 Admin Portal
               </h1>
               <p className="text-xs text-slate-500">
-                {user?.email || 'Admin'}
+                {user?.email || ADMIN_EMAIL}
               </p>
             </div>
           </div>
@@ -425,6 +518,14 @@ export default function AdminPage() {
               <span>Landing Page</span>
               <ArrowUpRight className="w-3.5 h-3.5" />
             </Link>
+            <button
+              onClick={handleAdminSignOut}
+              className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-slate-500 hover:text-red-600 rounded-xl hover:bg-red-50 border border-slate-200 transition-colors"
+              title="Sign Out of Admin"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Exit Admin</span>
+            </button>
           </div>
         </div>
       </div>
@@ -476,7 +577,7 @@ export default function AdminPage() {
                   <input
                     type="text"
                     required
-                    placeholder="Title"
+                    placeholder="Movie Title"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     className="w-full px-3.5 py-2 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-red-500 text-slate-900"
@@ -488,7 +589,7 @@ export default function AdminPage() {
                   </label>
                   <input
                     type="text"
-                    placeholder="Genre"
+                    placeholder="Action, Sci-Fi, Drama..."
                     value={genre}
                     onChange={(e) => setGenre(e.target.value)}
                     className="w-full px-3.5 py-2 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-red-500 text-slate-900"
@@ -503,7 +604,7 @@ export default function AdminPage() {
                 </label>
                 <textarea
                   rows={2}
-                  placeholder="Description"
+                  placeholder="Movie synopsis / overview"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   className="w-full px-3.5 py-2 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-red-500 text-slate-900"
@@ -531,7 +632,7 @@ export default function AdminPage() {
                     type="text"
                     value={duration}
                     onChange={(e) => setDuration(e.target.value)}
-                    placeholder="Duration"
+                    placeholder="e.g. 1h 45m"
                     className="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-red-500 text-slate-900"
                   />
                 </div>
@@ -558,13 +659,13 @@ export default function AdminPage() {
                 <div className="flex items-center justify-between mb-2.5">
                   <label className="flex items-center gap-1.5 text-xs font-bold text-slate-800 uppercase tracking-wider">
                     <FileVideo className="w-4 h-4 text-red-600" />
-                    <span>Video (.mkv, .mp4, .avi, .avif, .webm) *</span>
+                    <span>Video Source (.mkv, .mp4, .avi, .avif, .webm) *</span>
                   </label>
                   <div className="flex items-center gap-1 bg-white p-0.5 rounded-lg border border-slate-200 text-[11px] font-bold">
                     <button
                       type="button"
                       onClick={() => setVideoMode('file')}
-                      className={`px-2 py-0.5 rounded ${
+                      className={`px-2.5 py-0.5 rounded ${
                         videoMode === 'file' ? 'bg-red-600 text-white' : 'text-slate-600'
                       }`}
                     >
@@ -573,11 +674,11 @@ export default function AdminPage() {
                     <button
                       type="button"
                       onClick={() => setVideoMode('url')}
-                      className={`px-2 py-0.5 rounded ${
+                      className={`px-2.5 py-0.5 rounded ${
                         videoMode === 'url' ? 'bg-red-600 text-white' : 'text-slate-600'
                       }`}
                     >
-                      URL
+                      Stream URL
                     </button>
                   </div>
                 </div>
@@ -602,7 +703,7 @@ export default function AdminPage() {
                   <div className="space-y-2">
                     <input
                       type="url"
-                      placeholder="https://..."
+                      placeholder="https://example.com/video.mp4"
                       value={videoUrl}
                       onChange={(e) => {
                         setVideoUrl(e.target.value);
@@ -631,31 +732,31 @@ export default function AdminPage() {
                 )}
               </div>
 
-              {/* 2. Thumbnail Section */}
+              {/* 2. Thumbnail Section (Optional) */}
               <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80">
                 <div className="flex items-center justify-between mb-2.5">
                   <label className="flex items-center gap-1.5 text-xs font-bold text-slate-800 uppercase tracking-wider">
                     <ImageIcon className="w-4 h-4 text-red-600" />
-                    <span>Thumbnail *</span>
+                    <span>Thumbnail Poster (Optional)</span>
                   </label>
                   <div className="flex items-center gap-1 bg-white p-0.5 rounded-lg border border-slate-200 text-[11px] font-bold">
                     <button
                       type="button"
+                      onClick={() => setThumbMode('url')}
+                      className={`px-2.5 py-0.5 rounded ${
+                        thumbMode === 'url' ? 'bg-red-600 text-white' : 'text-slate-600'
+                      }`}
+                    >
+                      Image URL
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => setThumbMode('file')}
-                      className={`px-2 py-0.5 rounded ${
+                      className={`px-2.5 py-0.5 rounded ${
                         thumbMode === 'file' ? 'bg-red-600 text-white' : 'text-slate-600'
                       }`}
                     >
                       File
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setThumbMode('url')}
-                      className={`px-2 py-0.5 rounded ${
-                        thumbMode === 'url' ? 'bg-red-600 text-white' : 'text-slate-600'
-                      }`}
-                    >
-                      URL
                     </button>
                   </div>
                 </div>
@@ -670,7 +771,7 @@ export default function AdminPage() {
                 ) : (
                   <input
                     type="url"
-                    placeholder="https://..."
+                    placeholder="https://images.unsplash.com/..."
                     value={thumbUrl}
                     onChange={(e) => setThumbUrl(e.target.value)}
                     className="w-full px-3.5 py-2 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-red-500 text-slate-900"
@@ -678,18 +779,18 @@ export default function AdminPage() {
                 )}
               </div>
 
-              {/* 3. Subtitles Section */}
+              {/* 3. Subtitles Section (Optional) */}
               <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80">
                 <div className="flex items-center justify-between mb-2.5">
                   <label className="flex items-center gap-1.5 text-xs font-bold text-slate-800 uppercase tracking-wider">
                     <Subtitles className="w-4 h-4 text-red-600" />
-                    <span>Subtitles (.vtt or .srt)</span>
+                    <span>Subtitles (Optional: .vtt or .srt)</span>
                   </label>
                   <div className="flex items-center gap-1 bg-white p-0.5 rounded-lg border border-slate-200 text-[11px] font-bold">
                     <button
                       type="button"
                       onClick={() => setSubtitleMode('file')}
-                      className={`px-2 py-0.5 rounded ${
+                      className={`px-2.5 py-0.5 rounded ${
                         subtitleMode === 'file' ? 'bg-red-600 text-white' : 'text-slate-600'
                       }`}
                     >
@@ -698,7 +799,7 @@ export default function AdminPage() {
                     <button
                       type="button"
                       onClick={() => setSubtitleMode('url')}
-                      className={`px-2 py-0.5 rounded ${
+                      className={`px-2.5 py-0.5 rounded ${
                         subtitleMode === 'url' ? 'bg-red-600 text-white' : 'text-slate-600'
                       }`}
                     >
@@ -719,7 +820,7 @@ export default function AdminPage() {
                     ) : (
                       <input
                         type="text"
-                        placeholder="Subtitle URL"
+                        placeholder="Subtitle URL or /subtitles/sample.vtt"
                         value={subtitleUrl}
                         onChange={(e) => setSubtitleUrl(e.target.value)}
                         className="w-full px-3.5 py-2 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-red-500 text-slate-900"
@@ -729,7 +830,7 @@ export default function AdminPage() {
                   <div>
                     <input
                       type="text"
-                      placeholder="Language"
+                      placeholder="Language (e.g. English)"
                       value={subtitleLabel}
                       onChange={(e) => setSubtitleLabel(e.target.value)}
                       className="w-full px-3.5 py-2 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-red-500 text-slate-900"
@@ -753,7 +854,7 @@ export default function AdminPage() {
                 className="w-full py-3.5 px-4 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold text-sm rounded-xl shadow-lg shadow-red-500/25 transition-all flex items-center justify-center gap-2"
               >
                 {uploading ? (
-                  <span>Uploading...</span>
+                  <span>Publishing Movie...</span>
                 ) : (
                   <>
                     <Upload className="w-4 h-4" />

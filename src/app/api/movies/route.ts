@@ -4,6 +4,9 @@ import { Movie } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
+const DEFAULT_POSTER =
+  'https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=800&auto=format&fit=crop&q=80';
+
 export async function GET() {
   try {
     const movies = await getMovies();
@@ -33,9 +36,9 @@ export async function POST(req: NextRequest) {
       rating,
     } = body;
 
-    if (!title || !video_url || !thumbnail_url) {
+    if (!title || !video_url) {
       return NextResponse.json(
-        { success: false, error: 'Title, video URL, and thumbnail URL are required' },
+        { success: false, error: 'Title and video URL are required' },
         { status: 400 }
       );
     }
@@ -46,7 +49,7 @@ export async function POST(req: NextRequest) {
       description: description?.trim() || '',
       video_url: video_url.trim(),
       video_format: (video_format || 'mp4').toLowerCase().replace('.', ''),
-      thumbnail_url: thumbnail_url.trim(),
+      thumbnail_url: thumbnail_url?.trim() || DEFAULT_POSTER,
       subtitle_url: subtitle_url?.trim() || undefined,
       subtitle_label: subtitle_label?.trim() || undefined,
       genre: genre?.trim() || undefined,
@@ -87,4 +90,3 @@ export async function DELETE(req: NextRequest) {
     );
   }
 }
-

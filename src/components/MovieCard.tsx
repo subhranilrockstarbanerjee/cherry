@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Movie } from '@/lib/types';
-import { Play, Subtitles, Clock, Calendar } from 'lucide-react';
+import { Play, Subtitles } from 'lucide-react';
 
 interface MovieCardProps {
   movie: Movie;
@@ -12,11 +12,11 @@ interface MovieCardProps {
 export default function MovieCard({ movie, onWatch }: MovieCardProps) {
   const formatBadgeColors: Record<string, string> = {
     mkv: 'bg-red-600 text-white',
-    mp4: 'bg-rose-500 text-white',
-    avi: 'bg-amber-600 text-white',
-    avif: 'bg-purple-600 text-white',
-    webm: 'bg-blue-600 text-white',
-    mov: 'bg-emerald-600 text-white',
+    mp4: 'bg-red-600 text-white',
+    avi: 'bg-red-700 text-white',
+    avif: 'bg-red-800 text-white',
+    webm: 'bg-red-600 text-white',
+    mov: 'bg-red-600 text-white',
   };
 
   const badgeClass =
@@ -25,10 +25,10 @@ export default function MovieCard({ movie, onWatch }: MovieCardProps) {
   return (
     <div
       onClick={() => onWatch(movie)}
-      className="group relative bg-white rounded-2xl overflow-hidden border border-slate-200/80 hover:border-red-500 shadow-sm hover:shadow-xl hover:shadow-red-500/10 transition-all duration-300 flex flex-col cursor-pointer transform hover:-translate-y-1"
+      className="group relative bg-white rounded-2xl overflow-hidden border border-slate-200/90 hover:border-red-500 shadow-sm hover:shadow-xl hover:shadow-red-500/10 transition-all duration-300 flex flex-col cursor-pointer transform hover:-translate-y-1.5"
     >
-      {/* Poster Image */}
-      <div className="relative aspect-[16/10] w-full bg-slate-950 overflow-hidden">
+      {/* Top Poster Image */}
+      <div className="relative aspect-[16/10] w-full bg-slate-900 overflow-hidden">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={movie.thumbnail_url}
@@ -37,18 +37,18 @@ export default function MovieCard({ movie, onWatch }: MovieCardProps) {
           loading="lazy"
         />
 
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-80 group-hover:opacity-90 transition-opacity" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-60 group-hover:opacity-80 transition-opacity" />
 
         {/* Video Format Badge */}
         {movie.video_format && (
-          <div className="absolute top-3 left-3 flex items-center gap-1.5">
+          <div className="absolute top-3 left-3 flex items-center gap-1.5 z-10">
             <span
               className={`px-2.5 py-0.5 rounded-md text-[11px] font-black uppercase tracking-wider shadow-sm ${badgeClass}`}
             >
               .{movie.video_format}
             </span>
             {movie.rating && (
-              <span className="bg-black/60 backdrop-blur text-white text-[10px] font-bold px-2 py-0.5 rounded-md border border-white/20">
+              <span className="bg-black/70 backdrop-blur text-white text-[10px] font-bold px-2 py-0.5 rounded-md border border-white/20">
                 {movie.rating}
               </span>
             )}
@@ -57,66 +57,88 @@ export default function MovieCard({ movie, onWatch }: MovieCardProps) {
 
         {/* Subtitle Badge */}
         {movie.subtitle_url && (
-          <div className="absolute top-3 right-3 flex items-center gap-1 bg-red-950/80 backdrop-blur-md text-red-200 text-[11px] font-bold px-2.5 py-0.5 rounded-md border border-red-500/30 shadow-sm">
+          <div className="absolute top-3 right-3 flex items-center gap-1 bg-red-950/80 backdrop-blur-md text-red-200 text-[11px] font-bold px-2.5 py-0.5 rounded-md border border-red-500/30 shadow-sm z-10">
             <Subtitles className="w-3.5 h-3.5 text-red-400" />
             <span>{movie.subtitle_label || 'CC'}</span>
           </div>
         )}
-
-        {/* Play Icon on hover */}
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="w-14 h-14 rounded-full bg-red-600 text-white flex items-center justify-center shadow-lg shadow-red-600/40 transform scale-75 opacity-0 group-hover:scale-100 group-hover:opacity-100 transition-all duration-300">
-            <Play className="w-7 h-7 text-white fill-white ml-0.5" />
-          </div>
-        </div>
-
-        {/* Bottom meta */}
-        {(movie.duration || movie.release_year) && (
-          <div className="absolute bottom-2.5 left-3 right-3 flex items-center justify-between text-white text-xs">
-            {movie.duration ? (
-              <span className="flex items-center gap-1 font-medium text-slate-200">
-                <Clock className="w-3.5 h-3.5 text-red-400" />
-                {movie.duration}
-              </span>
-            ) : <span />}
-            {movie.release_year ? (
-              <span className="flex items-center gap-1 font-medium text-slate-200">
-                <Calendar className="w-3.5 h-3.5 text-red-400" />
-                {movie.release_year}
-              </span>
-            ) : <span />}
-          </div>
-        )}
       </div>
 
-      {/* Card Content - purely dynamic values */}
-      <div className="p-4 flex-1 flex flex-col justify-between bg-white">
+      {/* Red Circular Icon Badge Overlapping Image & Body (matching reference image) */}
+      <div className="relative -mt-6 flex justify-center z-20">
+        <div className="w-12 h-12 rounded-full bg-red-600 text-white flex items-center justify-center shadow-lg shadow-red-600/30 ring-4 ring-white group-hover:scale-110 group-hover:bg-red-700 transition-all duration-300">
+          <Play className="w-5 h-5 fill-white text-white ml-0.5" />
+        </div>
+      </div>
+
+      {/* Card Content (matching reference layout with red chevron bullet points) */}
+      <div className="p-5 pt-2 flex-1 flex flex-col justify-between bg-white text-center">
         <div>
-          {movie.genre && (
-            <span className="text-[11px] font-semibold tracking-wide uppercase text-red-600">
-              {movie.genre}
-            </span>
-          )}
-          <h3 className="text-base font-bold text-slate-900 group-hover:text-red-600 transition-colors line-clamp-1 mt-0.5">
+          <h3 className="text-sm sm:text-base font-extrabold uppercase tracking-wide text-slate-900 group-hover:text-red-600 transition-colors line-clamp-1 mt-1">
             {movie.title}
           </h3>
-          {movie.description && (
-            <p className="text-xs text-slate-500 line-clamp-2 mt-1.5 leading-relaxed">
-              {movie.description}
-            </p>
-          )}
+
+          {/* Dynamic details as red bullet list */}
+          <div className="mt-4 space-y-2 text-left text-xs border-t border-slate-100 pt-3">
+            {movie.video_format && (
+              <div className="flex items-center gap-2">
+                <span className="text-red-600 font-black text-sm leading-none">&gt;</span>
+                <span className="font-semibold text-slate-700">Format:</span>
+                <span className="font-bold text-red-600 uppercase">.{movie.video_format}</span>
+              </div>
+            )}
+
+            {movie.subtitle_url && (
+              <div className="flex items-center gap-2">
+                <span className="text-red-600 font-black text-sm leading-none">&gt;</span>
+                <span className="font-semibold text-slate-700">Subtitles:</span>
+                <span className="text-slate-600 truncate">{movie.subtitle_label || 'Embedded / CC'}</span>
+              </div>
+            )}
+
+            {movie.genre && (
+              <div className="flex items-center gap-2">
+                <span className="text-red-600 font-black text-sm leading-none">&gt;</span>
+                <span className="font-semibold text-slate-700">Genre:</span>
+                <span className="text-slate-600 truncate">{movie.genre}</span>
+              </div>
+            )}
+
+            {movie.duration && (
+              <div className="flex items-center gap-2">
+                <span className="text-red-600 font-black text-sm leading-none">&gt;</span>
+                <span className="font-semibold text-slate-700">Duration:</span>
+                <span className="text-slate-600">{movie.duration}</span>
+              </div>
+            )}
+
+            {movie.release_year && (
+              <div className="flex items-center gap-2">
+                <span className="text-red-600 font-black text-sm leading-none">&gt;</span>
+                <span className="font-semibold text-slate-700">Year:</span>
+                <span className="text-slate-600">{movie.release_year}</span>
+              </div>
+            )}
+
+            {movie.description && (
+              <div className="flex items-start gap-2 pt-1">
+                <span className="text-red-600 font-black text-sm leading-none mt-0.5">&gt;</span>
+                <p className="text-slate-500 line-clamp-2 text-[11px] leading-relaxed">
+                  {movie.description}
+                </p>
+              </div>
+            )}
+          </div>
         </div>
 
-        <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-end">
+        {/* Watch Now Button */}
+        <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-center">
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onWatch(movie);
-            }}
-            className="flex items-center gap-1.5 text-xs font-bold text-red-600 group-hover:text-red-700 hover:underline"
+            type="button"
+            className="w-full py-2 px-3 bg-red-50 hover:bg-red-600 text-red-600 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5"
           >
-            <Play className="w-3.5 h-3.5 fill-red-600" />
-            <span>Play</span>
+            <Play className="w-3.5 h-3.5 fill-current" />
+            <span>Watch Now</span>
           </button>
         </div>
       </div>
