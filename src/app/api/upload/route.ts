@@ -24,7 +24,7 @@ function parseWithBusboy(req: NextRequest, contentType: string): Promise<UploadR
       const bb = busboy({
         headers: { 'content-type': contentType },
         limits: {
-          fileSize: 2048 * 1024 * 1024, // 2GB limit
+          fileSize: 10 * 1024 * 1024 * 1024, // 10GB limit to prevent premature cutoff
           files: 1,
         },
       });
@@ -96,12 +96,16 @@ function parseWithBusboy(req: NextRequest, contentType: string): Promise<UploadR
             ext = 'vtt';
           }
 
-          // Try uploading to ImageKit if credentials are set
           let finalUrl = relativeUrl;
           let method = 'local';
           const ikCdnUrl = getImageKitUrl(relativeUrl);
 
-          if (process.env.IMAGEKIT_PRIVATE_KEY && process.env.IMAGEKIT_PUBLIC_KEY) {
+          // Upload to ImageKit if keys are set and file is within ImageKit API limit (25MB)
+          if (
+            process.env.IMAGEKIT_PRIVATE_KEY &&
+            process.env.IMAGEKIT_PUBLIC_KEY &&
+            bytesWritten < 25 * 1024 * 1024
+          ) {
             try {
               const fileBuffer = fs.readFileSync(uploadedFilePath);
               const ikResult: any = await imagekit.upload({
@@ -192,7 +196,11 @@ async function parseRawStream(req: NextRequest): Promise<UploadResult> {
   let method = 'local';
   const ikCdnUrl = getImageKitUrl(relativeUrl);
 
-  if (process.env.IMAGEKIT_PRIVATE_KEY && process.env.IMAGEKIT_PUBLIC_KEY) {
+  if (
+    process.env.IMAGEKIT_PRIVATE_KEY &&
+    process.env.IMAGEKIT_PUBLIC_KEY &&
+    bytesWritten < 25 * 1024 * 1024
+  ) {
     try {
       const fileBuffer = fs.readFileSync(uploadedFilePath);
       const ikResult: any = await imagekit.upload({

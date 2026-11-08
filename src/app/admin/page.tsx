@@ -141,6 +141,31 @@ export default function AdminPage() {
     file: File,
     type: 'video' | 'image' | 'subtitle'
   ): Promise<string> => {
+    // Helper to safely parse JSON response or surface server error text
+    const parseResponse = async (res: Response) => {
+      const text = await res.text();
+      let json: any = null;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        if (
+          res.status === 413 ||
+          text.toLowerCase().includes('entity too large') ||
+          text.toLowerCase().includes('payload too large')
+        ) {
+          throw new Error(
+            `File size (${(file.size / (1024 * 1024)).toFixed(1)} MB) exceeds the upload size limit. You can upload files up to 2GB or use a direct stream URL.`
+          );
+        }
+        throw new Error(text || `Server error (${res.status})`);
+      }
+
+      if (!res.ok || !json?.success || !json?.url) {
+        throw new Error(json?.error || `Upload failed with status ${res.status}`);
+      }
+      return json.url as string;
+    };
+
     try {
       const formData = new FormData();
       formData.append('file', file);
@@ -151,12 +176,13 @@ export default function AdminPage() {
         body: formData,
       });
 
-      const data = await res.json();
-      if (data.success && data.url) {
-        return data.url;
-      }
-      throw new Error(data.error || 'FormData parse failed');
+      return await parseResponse(res);
     } catch (err: any) {
+      // If error already identified 413 / size limit, throw it directly
+      if (err.message && err.message.includes('upload size limit')) {
+        throw err;
+      }
+
       // Fallback: direct streaming upload
       const rawRes = await fetch(
         `/api/upload?type=${type}&filename=${encodeURIComponent(file.name)}`,
@@ -169,11 +195,7 @@ export default function AdminPage() {
         }
       );
 
-      const rawData = await rawRes.json();
-      if (!rawData.success || !rawData.url) {
-        throw new Error(rawData.error || `Failed to upload ${type}`);
-      }
-      return rawData.url;
+      return await parseResponse(rawRes);
     }
   };
 
