@@ -364,6 +364,35 @@ export default function VideoPlayerModal({ movie, onClose }: VideoPlayerModalPro
     }
   };
 
+  const getErrorMessage = (mediaError: MediaError | null): string => {
+    if (typeof window !== 'undefined' && movie.video_url.startsWith('/uploads/')) {
+      const isLocalHost =
+        window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1' ||
+        window.location.hostname.startsWith('192.168.');
+      if (!isLocalHost) {
+        return `This video was uploaded to local PC disk storage (/uploads/...). Cloud deployments (like Vercel) cannot access local PC files. Please add movies using a cloud "Stream URL" or ImageKit in the Admin Portal.`;
+      }
+    }
+
+    if (mediaError) {
+      if (mediaError.code === 2) {
+        return `Network error while loading .${movie.video_format} video stream. Please check internet connection.`;
+      }
+      if (mediaError.code === 3) {
+        return `Media decode error. The video track or audio codec could not be decoded.`;
+      }
+      if (mediaError.code === 4) {
+        if (isXbox) {
+          return `Could not decode .${movie.video_format} file on Xbox Edge. Xbox requires standard H.264/AVC or VP9 codecs with AAC audio.`;
+        }
+        return `Video stream source not found (404) or format/codec (.${movie.video_format}) is not supported.`;
+      }
+    }
+
+    return `Unable to play .${movie.video_format} stream. Try opening the direct stream link below.`;
+  };
+
   return (
     <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 lg:p-6 overflow-y-auto animate-in fade-in duration-200">
       <div
@@ -422,9 +451,11 @@ export default function VideoPlayerModal({ movie, onClose }: VideoPlayerModalPro
               <Film className="w-12 h-12 text-red-500 mb-3" />
               <p className="text-base font-bold text-red-400">Video Playback Notice</p>
               <p className="text-xs text-slate-300 mt-1 leading-relaxed">{videoError}</p>
-              <p className="text-[11px] text-slate-400 mt-2">
-                Xbox Edge uses the system Media Foundation engine. If your file is encoded with an unsupported codec, you can stream it directly or switch to native mode.
-              </p>
+              {isXbox && (
+                <p className="text-[11px] text-slate-400 mt-2">
+                  Xbox Edge uses the system Media Foundation engine. If your file is encoded with an unsupported codec, you can stream it directly or switch to native mode.
+                </p>
+              )}
 
               <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
                 <button
@@ -443,7 +474,7 @@ export default function VideoPlayerModal({ movie, onClose }: VideoPlayerModalPro
                   className="px-3.5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-red-500/25"
                 >
                   <Tv className="w-3.5 h-3.5" />
-                  <span>Use Xbox Native Player</span>
+                  <span>{isXbox ? 'Use Xbox Native Player' : 'Use Native Browser Player'}</span>
                 </button>
 
                 <a
@@ -476,9 +507,7 @@ export default function VideoPlayerModal({ movie, onClose }: VideoPlayerModalPro
                   if (mediaError && mediaError.code === 1) {
                     return;
                   }
-                  setVideoError(
-                    `Could not decode .${movie.video_format} file. Xbox Edge requires standard H.264/AVC or VP9 codecs with AAC audio.`
-                  );
+                  setVideoError(getErrorMessage(mediaError));
                 }}
                 className="w-full h-full object-contain"
               >
